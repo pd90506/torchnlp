@@ -98,6 +98,8 @@ print(losses)  # The loss decreased every iteration over the training data!
 
 #===============================================================================================
 # %%
+# CBOW simple implementation
+
 CONTEXT_SIZE = 2  # 2 words to the left, 2 to the right
 raw_text = """We are about to study the idea of a computational process.
 Computational processes are abstract beings that inhabit computers.
@@ -122,11 +124,18 @@ print(data[:5])
 
 class CBOW(nn.Module):
 
-    def __init__(self):
-        pass
+    def __init__(self, vocab_size, embedding_dim, hidden_dim):
+        super(CBOW, self).__init__()
+        self.embeddings = nn.Embedding(vocab_size, embedding_dim)
+        self.fc1 = nn.Linear(embedding_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, vocab_size)
 
     def forward(self, inputs):
-        pass
+        embeds = self.embeddings(inputs).sum(dim=0, keepdim=True) # sum over all embeddings
+        out = F.relu(self.fc1(embeds))
+        out = self.fc2(out)
+        return out
+
 
 # create your model and train.  here are some functions to help you make
 # the data ready for use by your module
@@ -138,5 +147,91 @@ def make_context_vector(context, word_to_ix):
 
 
 make_context_vector(data[0][0], word_to_ix)  # example
+
+# %%
+
+losses = []
+loss_function = nn.CrossEntropyLoss()
+model = CBOW(vocab_size, embedding_dim=128, hidden_dim=128)
+optimizer = optim.SGD(model.parameters(), lr=0.001)
+
+for epoch in range(10):
+    total_loss = 0
+    for context, target in data:
+        context_idxs = torch.tensor([word_to_ix[w] for w in context], dtype=torch.long)
+        model.zero_grad()
+        out = model(context_idxs)
+        loss = loss_function(out, torch.tensor([word_to_ix[target]], dtype=torch.long))
+
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+    losses.append(total_loss)
+print(losses)  # The loss decreased every iteration over the training data!
+
+#===============================================================================================
+# %%
+# Skip-gram simple implementation
+CONTEXT_SIZE = 2  # 2 words to the left, 2 to the right
+raw_text = """We are about to study the idea of a computational process.
+Computational processes are abstract beings that inhabit computers.
+As they evolve, processes manipulate other abstract things called data.
+The evolution of a process is directed by a pattern of rules
+called a program. People create programs to direct processes. In effect,
+we conjure the spirits of the computer with our spells.""".split()
+
+# By deriving a set from `raw_text`, we deduplicate the array
+vocab = set(raw_text)
+vocab_size = len(vocab)
+
+word_to_ix = {word: i for i, word in enumerate(vocab)}
+data = []
+for i in range(2, len(raw_text) - 2):
+    context = [raw_text[i - 2], raw_text[i - 1],
+               raw_text[i + 1], raw_text[i + 2]]
+    target = raw_text[i]
+    data.append((context, target))
+print(data[:5])
+
+
+class SkipGram(nn.Module):
+
+    def __init__(self, vocab_size, embedding_dim):
+        super(SkipGram, self).__init__()
+        self.embeddings = nn.Embedding(vocab_size, embedding_dim)
+        self.fc = nn.Linear(embedding_dim, vocab_size)
+
+    def forward(self, inp):
+        inp = self.embeddings(inp)
+        out = self.fc(inp)
+        return out
+
+
+losses = []
+loss_function = nn.CrossEntropyLoss()
+model = SkipGram(vocab_size, embedding_dim=128)
+optimizer = optim.SGD(model.parameters(), lr=0.001)
+
+for epoch in range(10):
+    total_loss = 0
+    for context, inp in data:
+        context_idxs = torch.tensor([word_to_ix[w] for w in context], dtype=torch.long)
+        model.zero_grad()
+        loss = 0
+        for idx in context_idxs:
+            out = model(torch.tensor([word_to_ix[inp]], dtype=torch.long))
+            loss += loss_function(out, torch.tensor([idx], dtype=torch.long))
+
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+    losses.append(total_loss)
+print(losses)  # The loss decreased every iteration over the training data!
+
+
+
+
 
 # %%
