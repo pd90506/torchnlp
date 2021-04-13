@@ -126,4 +126,59 @@ all_negatives = get_negatives(all_contexts, corpus, 5)
 def batchify(data):
     max_len = max(len(c) + len(n) for _, c, n in data)
     centers, contexts_negatives, masks, labels = [], [], [], []
-    for center
+    for center, context, negative in data:
+        cur_len = len(context) + len(negative)
+        centers += [center]
+        contexts_negatives += [context + negative + [0] * (max_len - cur_len)]
+        masks += [[1] * cur_len + [0] * (max_len - cur_len)]
+        labels += [[1] * len(context) + [0] * (max_len - len(context))]
+    return (torch.tensor(centers).reshape((-1, 1)),
+            torch.tensor(contexts_negatives), torch.tensor(masks),
+            torch.tensor(labels))
+
+x_1 = (1, [2, 2], [3, 3, 3, 3])
+x_2 = (1, [2, 2, 2], [3, 3])
+batch = batchify((x_1, x_2))
+names = ['centers', 'contexts_nagatives', 'masks', 'labels']
+for name, data in zip(names, batch):
+    print(name, '=', data)
+
+# %%
+def load_data_ptb(batch_size, max_window_size, num_noise_words):
+    num_workers = d2l.get_dataloader_workers()
+    sentences = read_ptb()
+    vocab = d2l.Vocab(sentences, min_freq=10)
+    subsampled = subsampling(sentences, vocab)
+    corpus = [vocab[line] for line in subsampled]
+    all_centers, all_contexts = get_centers_and_contexts(
+        corpus, max_window_size)
+    all_negatives = get_negatives(all_contexts, corpus, num_noise_words)
+
+    class PTBDataset(torch.utils.data.Dataset):
+        def __init__(self, centers, contexts, negatives):
+            assert len(centers) == len(contexts) == len(negatives)
+            self.centers = centers
+            self.contexts = contexts
+            self.negatives = negatives
+
+        def __getitem__(self, index):
+            return (self.centers[index], self.contexts[index],
+                    self.negatives[index])
+        
+        def __len__(self):
+            return len(self.centers)
+    
+    dataset = PTBDataset(all_centers, all_contexts, all_negatives)
+
+    data_iter = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True,
+                                            collate_fn=batchify,
+                                            num_workers=num_workers)
+    return data_iter, vocab
+                                    
+# %%
+data_iter, vocab = load_data_ptb(512, 5, 5)
+for batch in data_iter:
+    for name, data in zip(names, batch):
+        print(name, 'shape:', data.shape)
+    break
+# %%
