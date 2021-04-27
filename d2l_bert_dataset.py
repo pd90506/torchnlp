@@ -16,7 +16,7 @@ def _read_wiki(data_dir):
     # uppercase letters are converted to lower case ones
     paragraphs = [
                   line.strip().lower().split(' . ') for line in lines
-                  if len(line.split(' . ') >= 2)]
+                  if len(line.split(' . ')) >= 2]
     random.shuffle(paragraphs)
     return paragraphs
 
@@ -133,3 +133,68 @@ def _pad_bert_inputs(examples, max_len, vocab):
         nsp_labels.append(torch.tensor(is_next, dtype=torch.long))
     return (all_token_ids, all_segments, valid_lens, all_pred_positions,
             all_mlm_weights, all_mlm_labels, nsp_labels)
+
+#%%
+class _WikiTextDataset(torch.utils.data.Dataset):
+    def __init__(self, paragraphs, max_len):
+        # input `paragraphs[i]` is a list of sentence strings representing a
+        # paragraph; while output `paragraphs[i]` is a list of sentences
+        # representing a paragraph, where each sentence is a list of tokens
+        paragraphs = [
+            d2l.tokenize(paragraph, token='word') for paragraph in paragraphs]
+        sentences = [
+            sentence for paragraph in paragraphs for sentence in paragraph]
+        self.vocab = d2l.Vocab(
+            sentences, min_freq=5,
+            reserved_tokens=['<pad>', '<mask>', '<cls>', '<sep>'])
+        # get data for the next sentence prediction task
+        examples = []
+        for paragraph in paragraphs:
+            examples.extend(
+                _get_nsp_data_from_paragraph(paragraph, paragraphs,
+                                             self.vocab, max_len))
+        # get data for the masked language model task
+        examples = [(_get_mlm_data_from_tokens(tokens, self.vocab) +
+                     (segments, is_next))
+                     for tokens, segments, is_next in examples]
+        # pad inputs
+        (self.all_tokens_ids, self.all_segments, self.valid_lens,
+         self.all_pred_positions, self.all_mlm_weights, self.all_mlm_labels,
+         self.nsp_labels) = _pad_bert_inputs(examples, max_len, self.vocab)
+    
+    def __getitem__(self, idx):
+        return (self.all_tokens_ids[idx], self.all_segments[idx],
+                self.valid_lens[idx], self.all_pred_positions[idx],
+                self.all_mlm_weights[idx], self.all_mlm_labels[idx],
+                self.nsp_labels[idx])
+    
+    def __len__(self):
+        return len(self.all_tokens_ids)
+
+
+# %%
+def load_data_wiki(batch_size, max_len):
+    num_workers = d2l.get_dataloader_workers()
+    data_dir = d2l.download_extract('wikitext-2', 'wikitext-2')
+    paragraphs = _read_wiki(data_dir)
+    train_set = _WikiTextDataset(paragraphs, max_len)
+    train_iter = torch.utils.data.DataLoader(train_set, batch_size,
+                                             shuffle=True,
+                                             num_workers=num_workers)
+    return train_iter, train_set.vocab
+
+
+# %%
+batch_size, max_len = 512, 64
+train_iter, vocab = load_data_wiki(batch_size, max_len)
+
+for (tokens_X, segments_X, valid_lens_x, pred_positions_X, mlm_weights_X,
+     mlm_Y, nsp_y) in train_iter:
+    print(tokens_X.shape, segments_X.shape, valid_lens_x.shape,
+           pred_positions_X.shape, mlm_weights_X.shape, mlm_Y.shape,
+           nsp_y.shape)
+    break
+
+# %%
+len(vocab)
+# %%
