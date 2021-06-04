@@ -124,6 +124,47 @@ import torch
 model = AutoModelForSequenceClassification.from_pretrained("test-glue/best-model", 
     num_labels=num_labels)
 
+
+# %%
+# from transformers import DataCollatorWithPadding
+
+# def explain(model, test_str):
+#     data_collator = DataCollatorWithPadding(tokenizer, pad_to_multiple_of=None)
+#     # test_str = "The new design is awful!"
+#     ex_tokens = tokenizer([test_str])
+#     str_list = tokenizer.convert_ids_to_tokens(ex_tokens['input_ids'][0])
+#     # print(str_list)
+#     ex_tokens = data_collator(ex_tokens)
+#     result = model(output_hidden_states=True, **ex_tokens)
+#     logits = result.logits
+#     pred = torch.argmax(logits)
+#     layer_ids = [-2, -3, -4, -5, -6, -7]
+#     expln_ = []
+#     for layer_id in layer_ids:
+#     # layer_id = -2
+#         if layer_id == -2:
+#             result.hidden_states[layer_id].retain_grad()
+#             model.zero_grad()
+#             logits[0][pred.item()].backward(retain_graph=True)
+#             hs_grad = result.hidden_states[layer_id].grad
+#             expln = (hs_grad * result.hidden_states[layer_id]).sum(dim=-1)
+#             cls_grad = hs_grad[:,0,:]
+#             cls_hs = result.hidden_states[layer_id][:,0,:]
+#             expln_.append(expln)
+#         else:
+#             result.hidden_states[layer_id].retain_grad()
+#             model.zero_grad()
+            
+#             cls_hs.backward(cls_grad, retain_graph=True)
+#             hs_grad = result.hidden_states[layer_id].grad
+#             expln = (hs_grad * result.hidden_states[layer_id]).sum(dim=-1)
+#             cls_grad = hs_grad[:,0,:]
+#             cls_hs = result.hidden_states[layer_id][:,0,:]
+#             expln_.append(expln)
+    
+#     expln = sum(expln_)
+#     return pred, expln, str_list
+
 # %%
 from transformers import DataCollatorWithPadding
 
@@ -145,19 +186,34 @@ def explain(model, test_str):
             result.hidden_states[layer_id].retain_grad()
             model.zero_grad()
             logits[0][pred.item()].backward(retain_graph=True)
+            
             hs_grad = result.hidden_states[layer_id].grad
             expln = (hs_grad * result.hidden_states[layer_id]).sum(dim=-1)
             cls_grad = hs_grad[:,0,:]
             cls_hs = result.hidden_states[layer_id][:,0,:]
+            sep_grad = hs_grad[:,-1,:]
+            sep_hs = result.hidden_states[layer_id][:,-1,:]
+
             expln_.append(expln)
         else:
             result.hidden_states[layer_id].retain_grad()
+
             model.zero_grad()
             cls_hs.backward(cls_grad, retain_graph=True)
             hs_grad = result.hidden_states[layer_id].grad
             expln = (hs_grad * result.hidden_states[layer_id]).sum(dim=-1)
+
             cls_grad = hs_grad[:,0,:]
             cls_hs = result.hidden_states[layer_id][:,0,:]
+
+            model.zero_grad()
+            sep_hs.backward(sep_grad, retain_graph=True)
+            hs_grad = result.hidden_states[layer_id].grad
+            expln += (hs_grad * result.hidden_states[layer_id]).sum(dim=-1)
+
+            sep_grad = hs_grad[:,-1,:]
+            sep_hs = result.hidden_states[layer_id][:,-1,:]
+
             expln_.append(expln)
     
     expln = sum(expln_)
@@ -166,14 +222,14 @@ def explain(model, test_str):
 #%%
 import matplotlib.pyplot as plt
 # test_str = dataset['test']['sentence'][21] #[3,8,13, 14,15, 17, 18, 91]
-test_str = "moore 's performance impresses almost as much as her work with haynes in 1995 's safe .​"
+test_str = "this is a bad movie ."
 pred, expln, str_list = explain(model, test_str)
 fig = plt.figure(figsize=(4, 2), dpi=80)
 ax = fig.add_axes([0,0,1,1])
-langs = str_list[1:]
+langs = str_list#[1:]
 expln = expln.data[0].numpy()
-expln[expln<0] = 0
-students = expln[1:]
+# expln[expln<0] = 0
+students = expln#1:]
 ax.bar(langs,students)
 plt.xticks(rotation = 60)
 plt.show()
